@@ -1,4 +1,3 @@
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -24,6 +23,8 @@ local beamAttachments = { left = nil, right = nil }
 local ghost = nil
 local savedCFrame = nil
 local ghostReady = false
+local savedCamType = nil
+local savedCamSubject = nil
 
 local hiddenfling = false
 
@@ -89,7 +90,6 @@ local function ensureEyeAttachments(head)
 		if beamAttachments.left then beamAttachments.left:Destroy() end
 		local a = Instance.new("Attachment")
 		a.Name = "LeftEye"
-
 		a.Position = Vector3.new(-0.3, 0.15, -0.4)
 		a.Parent = head
 		beamAttachments.left = a
@@ -143,16 +143,6 @@ local function updateLasers()
 
 	positionBeam(beams.left, leftPos, endPos)
 	positionBeam(beams.right, rightPos, endPos)
-end
-
-local function setCharTransparency(char, t)
-	for _, p in ipairs(char:GetDescendants()) do
-		if p:IsA("BasePart") then
-			p.LocalTransparencyModifier = t
-		elseif p:IsA("Decal") then
-			p.Transparency = t
-		end
-	end
 end
 
 local function createGhost(char)
@@ -218,11 +208,12 @@ local function createGhost(char)
 		end
 	end
 
-	setCharTransparency(char, 1)
-
 	local cam = workspace.CurrentCamera
+	savedCamType = cam.CameraType
+	savedCamSubject = cam.CameraSubject
 	if ghum then
 		cam.CameraSubject = ghum
+		cam.CameraType = Enum.CameraType.Custom
 	end
 
 	RunService.RenderStepped:Wait()
@@ -242,8 +233,11 @@ local function removeGhost()
 		for _, p in ipairs(char:GetDescendants()) do
 			if p:IsA("BasePart") then
 				p.LocalTransparencyModifier = 0
+				p.Transparency = 0
 			elseif p:IsA("Decal") then
 				p.Transparency = 0
+			elseif p:IsA("BillboardGui") or p:IsA("SurfaceGui") then
+				p.Enabled = true
 			end
 		end
 		local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -256,8 +250,11 @@ local function removeGhost()
 		if hum then
 			cam.CameraSubject = hum
 		end
+		if savedCamType then cam.CameraType = savedCamType end
 	end
 	savedCFrame = nil
+	savedCamType = nil
+	savedCamSubject = nil
 end
 
 task.spawn(function()
@@ -283,10 +280,39 @@ task.spawn(function()
 				for _, p in ipairs(char:GetDescendants()) do
 					if p:IsA("BasePart") then
 						p.LocalTransparencyModifier = 1
+						p.Transparency = 1
 					elseif p:IsA("Decal") then
 						p.Transparency = 1
+					elseif p:IsA("BillboardGui") or p:IsA("SurfaceGui") then
+						p.Enabled = false
 					end
 				end
+			end
+		end
+	end
+end)
+
+task.spawn(function()
+	while true do
+		RunService.RenderStepped:Wait()
+		if active and ghostReady and ghost then
+			local cam = workspace.CurrentCamera
+			local ghum = ghost:FindFirstChildOfClass("Humanoid")
+			local ghostHRP = ghost:FindFirstChild("HumanoidRootPart")
+
+			if ghum and cam.CameraSubject ~= ghum then
+				cam.CameraSubject = ghum
+			end
+			if cam.CameraType ~= Enum.CameraType.Custom then
+				cam.CameraType = Enum.CameraType.Custom
+			end
+
+			if ghostHRP then
+				local curCF = cam.CFrame
+				local look = curCF.LookVector
+				local clonePos = ghostHRP.Position
+				local camPos = clonePos - look * 12 + Vector3.new(0, 2, 0)
+				cam.CFrame = CFrame.new(camPos, camPos + look)
 			end
 		end
 	end
