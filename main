@@ -1,0 +1,338 @@
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local lp = Players.LocalPlayer
+local backpack = lp:WaitForChild("Backpack")
+local mouse = lp:GetMouse()
+
+local tool = Instance.new("Tool")
+tool.Name = "Laser Eyes"
+tool.RequiresHandle = false
+tool.CanBeDropped = false
+tool.Parent = backpack
+
+local BEAM_LENGTH    = 2000
+local BEAM_THICKNESS = 0.08
+local BEAM_COLOR     = Color3.fromRGB(255, 0, 0)
+
+local active = false
+local beams = { left = nil, right = nil }
+local beamAttachments = { left = nil, right = nil }
+local ghost = nil
+local savedCFrame = nil
+local ghostReady = false
+
+local hiddenfling = false
+
+if not ReplicatedStorage:FindFirstChild("juisdfj0i32i0eidsuf0iok") then
+	local detection = Instance.new("Decal")
+	detection.Name = "juisdfj0i32i0eidsuf0iok"
+	detection.Parent = ReplicatedStorage
+end
+
+local function fling()
+	local c, hrp, vel, movel = nil, nil, nil, 0.1
+	while hiddenfling do
+		RunService.Heartbeat:Wait()
+		c = lp.Character
+		hrp = c and c:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			vel = hrp.Velocity
+			hrp.Velocity = vel * 10000 + Vector3.new(0, 10000, 0)
+			RunService.RenderStepped:Wait()
+			hrp.Velocity = vel
+			RunService.Stepped:Wait()
+			hrp.Velocity = vel + Vector3.new(0, movel, 0)
+			movel = -movel
+		end
+	end
+end
+
+task.spawn(function()
+	while true do
+		if hiddenfling then
+			fling()
+		else
+			task.wait(0.05)
+		end
+	end
+end)
+
+local function createBeam()
+	local beam = Instance.new("Part")
+	beam.Name = "LaserBeam"
+	beam.Anchored = true
+	beam.CanCollide = false
+	beam.CanQuery = false
+	beam.CanTouch = false
+	beam.Material = Enum.Material.Neon
+	beam.Color = BEAM_COLOR
+	beam.Shape = Enum.PartType.Cylinder
+	beam.CastShadow = false
+	beam.Transparency = 0
+	beam.Parent = workspace
+	return beam
+end
+
+local function positionBeam(beam, fromPos, toPos)
+	local dist = math.max((toPos - fromPos).Magnitude, 0.01)
+	beam.Size = Vector3.new(dist, BEAM_THICKNESS, BEAM_THICKNESS)
+	local mid = fromPos:Lerp(toPos, 0.5)
+	beam.CFrame = CFrame.new(mid, toPos) * CFrame.Angles(0, math.rad(90), 0)
+end
+
+local function ensureEyeAttachments(head)
+	if not beamAttachments.left or beamAttachments.left.Parent ~= head then
+		if beamAttachments.left then beamAttachments.left:Destroy() end
+		local a = Instance.new("Attachment")
+		a.Name = "LeftEye"
+
+		a.Position = Vector3.new(-0.3, 0.15, -0.4)
+		a.Parent = head
+		beamAttachments.left = a
+	end
+	if not beamAttachments.right or beamAttachments.right.Parent ~= head then
+		if beamAttachments.right then beamAttachments.right:Destroy() end
+		local a = Instance.new("Attachment")
+		a.Name = "RightEye"
+		a.Position = Vector3.new(0.3, 0.15, -0.4)
+		a.Parent = head
+		beamAttachments.right = a
+	end
+end
+
+local function getLaserEndPos()
+	if mouse.Target then return mouse.Hit.Position end
+	local cam = workspace.CurrentCamera
+	local r = cam:ScreenPointToRay(mouse.X, mouse.Y)
+	return r.Origin + r.Direction * BEAM_LENGTH
+end
+
+local function getBeamHead()
+	if ghost then
+		local h = ghost:FindFirstChild("Head")
+		if h then return h end
+	end
+	local char = lp.Character
+	return char and char:FindFirstChild("Head")
+end
+
+local function updateLasers()
+	if not active or not ghostReady then
+		for _, b in pairs(beams) do if b then b:Destroy() end end
+		beams.left, beams.right = nil, nil
+		if beamAttachments.left then beamAttachments.left:Destroy() beamAttachments.left = nil end
+		if beamAttachments.right then beamAttachments.right:Destroy() beamAttachments.right = nil end
+		return
+	end
+
+	local head = getBeamHead()
+	if not head then return end
+
+	ensureEyeAttachments(head)
+
+	if not beams.left or not beams.left.Parent then beams.left = createBeam() end
+	if not beams.right or not beams.right.Parent then beams.right = createBeam() end
+
+	local endPos = getLaserEndPos()
+	local leftPos  = beamAttachments.left.WorldPosition
+	local rightPos = beamAttachments.right.WorldPosition
+
+	positionBeam(beams.left, leftPos, endPos)
+	positionBeam(beams.right, rightPos, endPos)
+end
+
+local function setCharTransparency(char, t)
+	for _, p in ipairs(char:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.LocalTransparencyModifier = t
+		elseif p:IsA("Decal") then
+			p.Transparency = t
+		end
+	end
+end
+
+local function createGhost(char)
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return false end
+	savedCFrame = hrp.CFrame
+
+	local oldArchivable = char.Archivable
+	char.Archivable = true
+	local ok, clone = pcall(function() return char:Clone() end)
+	char.Archivable = oldArchivable
+
+	if not ok or not clone then
+		warn("[GhostClone] clone failed")
+		return false
+	end
+
+	ghost = clone
+	ghost.Name = "GhostClone"
+	ghost.Parent = workspace
+
+	local ghostHRP = ghost:FindFirstChild("HumanoidRootPart")
+	local ghum = ghost:FindFirstChildOfClass("Humanoid")
+
+	if ghum then
+		ghum.WalkSpeed = 0
+		ghum.JumpPower = 0
+		ghum.PlatformStand = true
+		ghum.AutoRotate = false
+		local animator = ghum:FindFirstChildOfClass("Animator")
+		if animator then
+			for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+				track:Stop(0)
+			end
+		end
+	end
+
+	if ghostHRP then
+		ghostHRP.CFrame = savedCFrame
+	end
+
+	local torso = ghost:FindFirstChild("Torso")
+	local la = ghost:FindFirstChild("Left Arm")
+	local ra = ghost:FindFirstChild("Right Arm")
+	if torso and la and ra then
+		torso.CFrame = savedCFrame
+		la.CFrame = savedCFrame * CFrame.new(-1.5, 0, 0)
+		ra.CFrame = savedCFrame * CFrame.new(1.5, 0, 0)
+	end
+	local ll = ghost:FindFirstChild("Left Leg")
+	local rl = ghost:FindFirstChild("Right Leg")
+	if ll then ll.CFrame = savedCFrame * CFrame.new(-0.5, -2, 0) end
+	if rl then rl.CFrame = savedCFrame * CFrame.new(0.5, -2, 0) end
+	local hd = ghost:FindFirstChild("Head")
+	if hd then hd.CFrame = savedCFrame * CFrame.new(0, 1.5, 0) end
+
+	for _, p in ipairs(ghost:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.Anchored = true
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+		end
+	end
+
+	setCharTransparency(char, 1)
+
+	local cam = workspace.CurrentCamera
+	if ghum then
+		cam.CameraSubject = ghum
+	end
+
+	RunService.RenderStepped:Wait()
+	return true
+end
+
+local function removeGhost()
+	if ghost then
+		ghost:Destroy()
+		ghost = nil
+	end
+	ghostReady = false
+	if beamAttachments.left then beamAttachments.left:Destroy() beamAttachments.left = nil end
+	if beamAttachments.right then beamAttachments.right:Destroy() beamAttachments.right = nil end
+	local char = lp.Character
+	if char then
+		for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") then
+				p.LocalTransparencyModifier = 0
+			elseif p:IsA("Decal") then
+				p.Transparency = 0
+			end
+		end
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if hrp and savedCFrame then
+			hrp.CFrame = savedCFrame
+			hrp.Velocity = Vector3.new(0, 0, 0)
+		end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local cam = workspace.CurrentCamera
+		if hum then
+			cam.CameraSubject = hum
+		end
+	end
+	savedCFrame = nil
+end
+
+task.spawn(function()
+	while true do
+		RunService.Heartbeat:Wait()
+		if active and hiddenfling and ghostReady then
+			local char = lp.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				local endPos = getLaserEndPos()
+				hrp.CFrame = CFrame.new(endPos)
+			end
+		end
+	end
+end)
+
+task.spawn(function()
+	while true do
+		RunService.RenderStepped:Wait()
+		if active and ghostReady and ghost then
+			local char = lp.Character
+			if char then
+				for _, p in ipairs(char:GetDescendants()) do
+					if p:IsA("BasePart") then
+						p.LocalTransparencyModifier = 1
+					elseif p:IsA("Decal") then
+						p.Transparency = 1
+					end
+				end
+			end
+		end
+	end
+end)
+
+tool.Equipped:Connect(function()
+	local conn = RunService.RenderStepped:Connect(updateLasers)
+	tool.Unequipped:Once(function()
+		conn:Disconnect()
+		active = false
+		hiddenfling = false
+		for _, b in pairs(beams) do if b then b:Destroy() end end
+		beams.left, beams.right = nil, nil
+		if beamAttachments.left then beamAttachments.left:Destroy() beamAttachments.left = nil end
+		if beamAttachments.right then beamAttachments.right:Destroy() beamAttachments.right = nil end
+		removeGhost()
+	end)
+end)
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if lp.Character and lp.Character:FindFirstChildOfClass("Tool") == tool then
+			local char = lp.Character
+
+			if char and not ghost then
+				local ok = pcall(createGhost, char)
+				ghostReady = ok and ghost ~= nil
+			else
+				ghostReady = ghost ~= nil
+			end
+
+			if ghostReady then
+				active = true
+				hiddenfling = true
+			else
+				warn("[LaserEyes] ghost not ready, fling aborted")
+			end
+		end
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		active = false
+		hiddenfling = false
+		removeGhost()
+	end
+end)
